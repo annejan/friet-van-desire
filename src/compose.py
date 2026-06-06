@@ -518,8 +518,10 @@ def main():
         if not MELODY_ONLY:
             for s_b, d_b, _pitch in layers['layers'].get('sfx', []):
                 for out_b, _label in remap(s_b):
+                    # Intro gets the longer/smoother 'swell'; section
+                    # transitions keep the punchier 'crash'.
                     fx_events.append({
-                        'kind': 'crash',
+                        'kind': 'swell' if _label == 'intro' else 'crash',
                         'frame': grid_frame(out_b),
                     })
             # Reprise swells: a riser into each OUTPUT chorus segment so each

@@ -46,6 +46,11 @@ DRUM_KIT = {
     # envelope reaches full peak before release. Pitch index 28 (≈ MIDI 52)
     # is darker noise — more "wwoosh", less "ssss".
     'crash':   (28, 80, 0x90, 0xF8),
+    # Intro swell only: a longer, smoother reverse cymbal. Attack $C (~1 s
+    # slow rise = less "stuk", more wwoosh) gated 2.4 s so it grows grandly
+    # into the song. Used solely for the intro (see compose.py); the section
+    # crashes keep the 'crash' config above.
+    'swell':   (28, 120, 0xC0, 0xF9),
 }
 
 NOTE_LO, NOTE_HI = 12, 119
