@@ -387,8 +387,8 @@ tick_scene:
 // boundaries (frames @175bpm): 369,934,1509,3137(breakdown),3343(chorus3 drop)
 sc_blo:  .byte $71,$A6,$E5,$41,$0F
 sc_bhi:  .byte $01,$03,$05,$0C,$0D
-sc_mask: .byte $03,$0F,$3F,$FF,$03,$FF   // 2,4,6,8 | 2 (breakdown) | 8 (drop)
-sc_exp:  .byte $FF,$FF,$00,$00,$00,$FF   // BIG 2x intro -> shrink to normal -> BIG drop
+sc_mask: .byte $3F,$FF,$FF,$FF,$03,$FF   // 6,8,8,8 | 2 (breakdown) | 8 (drop)
+sc_exp:  .byte $FF,$FF,$00,$00,$00,$FF   // BIG 2x intro (6->8 big blocks) -> normal -> BIG drop
 
 // ---- lyric ticker: write the current line into text row 23 -----------
 lyric_tick:
