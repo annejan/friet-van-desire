@@ -388,7 +388,7 @@ tick_scene:
 sc_blo:  .byte $71,$A6,$E5,$41,$0F
 sc_bhi:  .byte $01,$03,$05,$0C,$0D
 sc_mask: .byte $03,$0F,$3F,$FF,$03,$FF   // 2,4,6,8 | 2 (breakdown) | 8 (drop)
-sc_exp:  .byte $00,$00,$00,$00,$00,$FF   // normal ... then 2x only on the drop
+sc_exp:  .byte $FF,$FF,$00,$00,$00,$FF   // BIG 2x intro -> shrink to normal -> BIG drop
 
 // ---- lyric ticker: write the current line into text row 23 -----------
 lyric_tick:

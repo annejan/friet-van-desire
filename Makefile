@@ -8,7 +8,7 @@
 #   make preview-clean   song-faithful workstage render (130 BPM)
 #   make preview-melody  vocal-only workstage (verification)
 .PHONY: all clean analyze extract compose synth \
-        clean-pipeline melody-only friet lab compo disk master koala koala-art \
+        clean-pipeline melody-only friet lab compo disk master koala koala-art koala-edit \
         preview preview-clean preview-melody preview-friet preview-lab player
 
 SHELL      := /bin/bash
@@ -159,6 +159,14 @@ $(KOALA_KOA): FrietFromDesireMiep.kla $(TOOLS_DIR)/mix_koala.py
 	$(PYTHON) $(TOOLS_DIR)/mix_koala.py
 koala-art:
 	$(PYTHON) $(TOOLS_DIR)/make_koala.py
+# Build the demo from a HAND-EDITED koala instead of the procedural composite.
+# Export the current art with `cp out/friet.koa FrietDemo_edit.kla` (already
+# done), edit FrietDemo_edit.kla in Multipaint/KoalaPainter, then `make
+# koala-edit`. This bypasses mix_koala (so your edits aren't overwritten).
+koala-edit:
+	$(PYTHON) $(TOOLS_DIR)/kla_to_bins.py FrietDemo_edit.kla
+	$(PYTHON) $(SRC_DIR)/build_player.py
+	@echo "Demo built from FrietDemo_edit.kla -> $(KOALA_PRG)"
 # 32 rotation frames of the 3D cube, from the Spritemate .spm. Lives at $4440
 # (just past the grown SID); the text screen moved to $5800 to make room.
 $(SRC_DIR)/player/sprite_cube.bin: $(TOOLS_DIR)/spm_to_sprites.py FinaLKjoep32.spm
