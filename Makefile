@@ -8,7 +8,7 @@
 #   make preview-clean   song-faithful workstage render (130 BPM)
 #   make preview-melody  vocal-only workstage (verification)
 .PHONY: all clean analyze extract compose synth \
-        clean-pipeline melody-only friet lab compo disk master koala koala-proc koala-art sprite_cube_dep \
+        clean-pipeline melody-only friet lab compo disk master koala koala-proc koala-art sprite_cube_dep sng \
         preview preview-clean preview-melody preview-friet preview-lab player
 
 SHELL      := /bin/bash
@@ -37,6 +37,7 @@ COMPO_D64  := $(OUT_DIR)/friet_compo.d64
 KOALA_KOA  := $(OUT_DIR)/friet.koa
 KOALA_PRG  := $(OUT_DIR)/friet.prg
 KOALA_D64  := $(OUT_DIR)/friet.d64
+SNG        := $(OUT_DIR)/friet.sng
 KLA_SRC    := LegerZuigtPenisCroLLer.kla
 LAB_SID    := $(OUT_DIR)/lab.sid
 LAB_MP3    := $(OUT_DIR)/lab.mp3
@@ -172,6 +173,13 @@ koala-proc: sprite_cube_dep
 # make_koala.py = old procedural snackbar (different art, rarely used).
 koala-art:
 	$(PYTHON) $(TOOLS_DIR)/make_koala.py
+# GoatTracker .sng skeleton from the composition (notes + structure + basic
+# instruments; NOT a faithful render — GT plays it with its own engine).
+sng: $(SNG)
+$(SNG): $(SRC_DIR)/compose.py $(TOOLS_DIR)/yaml_to_sng.py $(SPEC) $(LAYERS)
+	FAST=1 $(PYTHON) $(SRC_DIR)/compose.py >/dev/null
+	$(PYTHON) $(TOOLS_DIR)/yaml_to_sng.py
+	$(PYTHON) $(SRC_DIR)/compose.py >/dev/null
 # 32 rotation frames of the 3D cube, from the Spritemate .spm. Lives at $4440
 # (just past the grown SID); the text screen moved to $5800 to make room.
 sprite_cube_dep: $(SRC_DIR)/player/sprite_cube.bin
