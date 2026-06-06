@@ -21,11 +21,10 @@ PAL_CLK = 985248.0
 PAL_HZ  = 50.0
 
 WF_TRI, WF_SAW, WF_PULSE, WF_NOISE = 0x10, 0x20, 0x40, 0x80
-# Bass: aggressive pluck. Attack $0 (2 ms, instant transient on every note),
-# decay $8 (~300 ms) down to sustain $6 (~40%) so each note really THWACKS
-# then drops to a lean body — driving and rave-y. Release $8 for a clean tail.
-# PW 25% + pulse waveform keeps timbral separation from the lead.
-V1_AD, V1_SR = 0x08, 0x68
+# Bass: HHC punch. Instant attack, 168 ms decay to 7% sustain, 168 ms release.
+# Each note thwacks at attack peak then drops nearly silent, leaving the
+# mid-bass register clear for the pulse lead.
+V1_AD, V1_SR = 0x07, 0x17
 # Lead (triangle = vocal-ish tone): gentle 24 ms attack so legato pitch
 # changes don't click, full sustain, medium release for breathy phrase tails.
 V2_AD, V2_SR = 0x12, 0xF6
@@ -35,19 +34,18 @@ V2_AD, V2_SR = 0x12, 0xF6
 # instead of decaying to silence in 6 ms. Sustain=0 with release=0 means
 # the envelope decays naturally toward 0 at the decay rate during gate-on.
 DRUM_KIT = {
-    'kick':  (2,  6, 0x09, 0x00),   # decay 720 ms — full "boom" body
-    'snare': (36, 5, 0x07, 0x00),   # decay 168 ms — sharp snap
-    'hat':   (78, 1, 0x02, 0x00),   # decay  24 ms — crisp tick (dur=1 frame)
-    'crash': (28, 200, 0xD0, 0xF8),  # Reverse-cymbal swell.
-                                     #   Attack $D = ~3 s (slow rise).
-                                     #   Decay  $0 = 6 ms (skipped — sustain at peak).
-                                     #   Sustain $F = full (peak holds at the impact).
-                                     #   Release $8 = 240 ms (clean tail).
-                                     # Gated for 200 frames = 4 s, so the
-                                     # envelope reaches full peak before
-                                     # release. Pitch index 28 (≈ MIDI 52)
-                                     # is darker noise — more "wwoosh", less
-                                     # "ssss" than the previous 40.
+    'kick':    (2,  4, 0x09, 0x00),  # 80 ms gate — punchy HHC 4-on-floor
+    'snare':   (36, 5, 0x07, 0x00),  # decay 168 ms — sharp snap
+    'hat':     (78, 1, 0x02, 0x00),  # decay  24 ms — crisp tick (dur=1 frame)
+    # Open hat: same noise pitch as closed, longer gate + slower decay so the
+    # noise rings into the next 8th instead of cutting dead. 60 ms gives the
+    # "tssss" attack without bleeding into the next hit = chorus shimmer.
+    'open_hat':(78, 3, 0x05, 0x00),  # gate 60 ms, decay ~80 ms
+    # Reverse-cymbal swell. Attack $9 = ~750 ms rise to peak, sustain $F
+    # holds at peak, release $8 = 240 ms clean tail. Gated 1.6 s so the
+    # envelope reaches full peak before release. Pitch index 28 (≈ MIDI 52)
+    # is darker noise — more "wwoosh", less "ssss".
+    'crash':   (28, 80, 0x90, 0xF8),
 }
 
 NOTE_LO, NOTE_HI = 12, 119
@@ -156,31 +154,51 @@ def encode_voice_4byte(spans_with_ctrl, total_frames, default_ctrl):
     return buf
 
 def build_drum_timeline(drum_events, total_frames):
-    """List of {frame, kind} -> RLE-compressed (dur, note, ctrl, ad, sr) events."""
-    REST = (0, 0x80, 0x00, 0x09)
-    timeline = [REST] * (total_frames + 2)
-    for ev in sorted(drum_events, key=lambda e: e['frame']):
-        kind = ev.get('kind', 'hat')
-        if kind not in DRUM_KIT: continue
-        pitch, dur, ad, sr = DRUM_KIT[kind]
+    """List of {frame, kind} -> RLE-compressed (dur, note, ctrl, ad, sr) events.
+
+    Non-overlapping resolution: V3 is the shared noise channel — only one
+    drum can play at a time. Each event is truncated to fit BEFORE the next
+    event's onset, gets a clean gate-on hold + gate-off frame, and the
+    timeline gap between events carries the previous drum's gate-off tuple
+    so AD/SR don't toggle during the release tail. That gives each drum hit
+    a clean, hardware-legal envelope (without this, overlapping events
+    produced mid-cycle AD/SR changes + re-triggers = glitch artefacts).
+    """
+    KICK_TRI_FRAMES = 2
+    KICK_TRI_PITCH = 20            # high-ish triangle "thump"
+    REST_INITIAL = (0, 0x80, 0x00, 0x09)
+    timeline = [REST_INITIAL] * (total_frames + 2)
+    sorted_evs = sorted([e for e in drum_events if e.get('kind') in DRUM_KIT],
+                        key=lambda e: e['frame'])
+    for idx, ev in enumerate(sorted_evs):
+        kind = ev['kind']
+        pitch, gate_dur, ad, sr = DRUM_KIT[kind]
         f = ev['frame']
+        next_f = sorted_evs[idx + 1]['frame'] if idx + 1 < len(sorted_evs) else total_frames
+        # Truncate gate-on duration so we LEAVE at least 1 frame for our own
+        # gate-off before the next event grabs the channel.
+        gate_on = max(1, min(gate_dur, next_f - f - 1))
+        # Write gate-on frames
         if kind == 'kick':
-            # Kick pitch-sweep: 2 frames triangle at high pitch (thump),
-            # then noise body (boom). Classic SID kick technique.
-            KICK_TRI_FRAMES = 2
-            KICK_TRI_PITCH = 20  # high-ish triangle for the "thump"
-            for i in range(min(KICK_TRI_FRAMES, dur)):
+            tri = min(KICK_TRI_FRAMES, gate_on)
+            for i in range(tri):
                 if f + i < total_frames:
-                    timeline[f + i] = (KICK_TRI_PITCH, 0x11, ad, sr)  # $11 = triangle + gate
-            for i in range(KICK_TRI_FRAMES, dur):
-                if f + i < total_frames:
-                    timeline[f + i] = (pitch, 0x81, ad, sr)  # $81 = noise + gate
-        else:
-            for i in range(dur):
+                    timeline[f + i] = (KICK_TRI_PITCH, 0x11, ad, sr)
+            for i in range(tri, gate_on):
                 if f + i < total_frames:
                     timeline[f + i] = (pitch, 0x81, ad, sr)
-        if f + dur < total_frames:
-            timeline[f + dur] = (pitch, 0x80, ad, sr)
+        else:
+            for i in range(gate_on):
+                if f + i < total_frames:
+                    timeline[f + i] = (pitch, 0x81, ad, sr)
+        # Gate-off and release-tail fill: this drum's gate-off tuple holds
+        # until the next event (or end). Keeps AD/SR steady during release
+        # so the SID's envelope finishes its tail at the drum's own rate
+        # instead of switching to the static REST AD/SR mid-release.
+        rest_tuple = (pitch, 0x80, ad, sr)
+        for ff in range(f + gate_on, next_f):
+            if ff < total_frames:
+                timeline[ff] = rest_tuple
     # RLE
     events = []
     i = 0
@@ -280,36 +298,37 @@ init_clr:
     sta SID+12
     lda #${V2_SR:02X}
     sta SID+13
-    ; V1 pulse width — 25% duty for synthy bass (differs from V2's 50%)
+    ; V1 pulse width — 50% squarewave, rounder than 25% in the mix.
     lda #$00
     sta SID+2
-    lda #$04
+    lda #$08
     sta SID+3
-    ; V2 pulse width — 50% duty for a chirpy square-wave chiptune lead
+    ; V2 pulse width — 25% duty. Lots of odd-harmonic content (thin, reedy,
+    ; HHC-stab-flavoured) that cuts through the mid-bass range the bass
+    ; and snare occupy.
     lda #$00
     sta SID+9           ; V2 PW LO
-    lda #$08
+    lda #$04
     sta SID+10          ; V2 PW HI
     ; Filter — route V2 (lead) through a resonant low-pass. Each V2 note-on
-    ; resets the cutoff to $E0 (open); filter_env decays it toward $80 over
+    ; resets the cutoff to $C0 (open); filter_env decays it toward $80 over
     ; the note's life => "hoover wow" sweep on every lead note.
-    ; The decay is gentle so the triangle vocal in verses still cuts through.
     lda #$00
     sta SID+21          ; FC LO
-    lda #$60
-    sta SID+22          ; FC HI -- mid cutoff ($80->$60 for the 8580's brighter,
-                        ; near-linear curve; keeps the warm mid-LP body)
-    lda #$72            ; resonance $7, V2 routed (bit 1) -- 8580 resonance is
-                        ; stronger/sharper than 6581, so one notch lower than
-                        ; the 6581 sweet-spot ($8) keeps the flangey ring
-                        ; without masking the fundamentals
+    lda #$80
+    sta SID+22          ; FC HI — open enough to keep the pulse lead's
+                        ; high harmonics audible (was $60 when the lead
+                        ; was a soft triangle).
+    lda #$42            ; resonance $4, V2 routed (bit 1). On 8580 res $4
+                        ; is gentle ring without a piercing peak — $7+
+                        ; made the lead whistle against the kick.
     sta SID+23
     lda #$1F            ; LP mode + volume max
     sta SID+24
     lda #$C0
-    sta ZP_FILT_CUR     ; start open ($E0->$C0: $E0 is near fully-open on 8580)
-    lda #$60
-    sta ZP_FILT_TGT     ; sweep settles to a warm mid-LP ($80->$60 for 8580)
+    sta ZP_FILT_CUR     ; start open ($C0 is near fully-open on 8580)
+    lda #$80
+    sta ZP_FILT_TGT     ; sweep settles to a warm-bright mid-LP
     lda #<v0_data
     sta ZP_V0
     lda #>v0_data
@@ -340,21 +359,24 @@ play_routine:
     jsr tick0
     jsr tick1
     jsr tick2
+    ; filter_env: per-note cutoff sweep $C0->$80 plus a synchronised LFO
+    ; ±3 wobble. Verse notes sit below the cutoff (warm); chorus notes
+    ; brush it (audible sweep + shimmer = the HHC "wow"). apply_vibrato
+    ; and pwm_sweep stay defined below but are not called: vibrato
+    ; didn't complete on short notes and PWM dropped out at PW extremes.
     jsr filter_env
-    jsr apply_vibrato
-    jsr pwm_sweep
     rts
 
-; PWM sweep on V1 bass — cycle pulse width continuously for a thick
-; chorus-like movement. Costs 3 bytes + 6 cycles per frame. The
-; classic Hubbard/Galway trick that separates pro from amateur SID.
+; PWM sweep on V1 bass — cycle pulse width continuously for thick movement
+; (Hubbard/Galway trick). Increment +$0060/frame = full cycle in ~860 ms.
+; Currently not called from play_routine — kept for future re-enable.
 pwm_sweep:
     clc
     lda SID+2          ; V1 PW LO
-    adc #$80
+    adc #$60
     sta SID+2
     lda SID+3          ; V1 PW HI
-    adc #$01
+    adc #$00
     and #$0F           ; keep in 0-F range
     sta SID+3
     rts
@@ -382,11 +404,10 @@ vib_active:
     rts
 
 ; Modulate filter cutoff each frame: decay sweep + LFO wobble.
-; The LFO shares the free-running ZP_VIB_IDX phase with the vibrato,
-; adding a subtle phaser-like wobble to the filter cutoff.
-; The wobble is small (±6 on HI byte; gentle on the 8580's bright curve)
-; so it shimmers rather than swoops.
+; The LFO uses the free-running ZP_VIB_IDX phase (advanced here since
+; apply_vibrato is not currently called) for a subtle shimmer.
 filter_env:
+    inc ZP_VIB_IDX        ; advance shared LFO phase
     lda ZP_FILT_CUR
     cmp ZP_FILT_TGT
     beq fe_lfo          ; skip decay if at target, but still wobble
@@ -647,16 +668,12 @@ f2done:
 {bytes_to_asm('freq_lo', freq_lo)}
 {bytes_to_asm('freq_hi', freq_hi)}
 
-; Vibrato LFO: 16-step zigzag, ±$06 freq units (~quarter-tone wobble at A4)
+; Vibrato LFO: 16-step zigzag, ±6 freq units (~quarter-tone wobble at A4).
 ; vib_hi is the sign-extended high byte so the 16-bit add carries correctly.
-{bytes_to_asm('vib_lo', [(v & 0xFF) for v in [0,4,8,12,12,8,4,0,0,-4,-8,-12,-12,-8,-4,0]])}
-{bytes_to_asm('vib_hi', [0xFF if v < 0 else 0x00 for v in [0,4,8,12,12,8,4,0,0,-4,-8,-12,-12,-8,-4,0]])}
-; Filter LFO: 16-step triangle, ±6 on cutoff HI byte — a flangey/phasey
-; shimmer. On the 8580's steeper/near-linear curve a fixed HI-byte delta is a
-; WIDER frequency swing than on 6581, so ±6 here gives the shimmer that ±10
-; gave on 6581 (and ±16 was too wah-y even there).
-; Shares ZP_VIB_IDX phase with the vibrato for a synchronised wobble.
-{bytes_to_asm('filt_lfo', [(v & 0xFF) for v in [0,2,3,5,6,5,3,2,0,-2,-3,-5,-6,-5,-3,-2]])}
+{bytes_to_asm('vib_lo', [(v & 0xFF) for v in [0,2,4,6,6,4,2,0,0,-2,-4,-6,-6,-4,-2,0]])}
+{bytes_to_asm('vib_hi', [0xFF if v < 0 else 0x00 for v in [0,2,4,6,6,4,2,0,0,-2,-4,-6,-6,-4,-2,0]])}
+; Filter LFO: 16-step triangle, ±3 on cutoff HI byte — gentle flange shimmer.
+{bytes_to_asm('filt_lfo', [(v & 0xFF) for v in [0,1,1,2,3,2,1,1,0,-1,-1,-2,-3,-2,-1,-1]])}
 {bytes_to_asm('v0_data', v1_data)}
 {bytes_to_asm('v1_data', v2_data)}
 {bytes_to_asm('v2_data', v3_data)}

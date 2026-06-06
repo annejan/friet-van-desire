@@ -14,7 +14,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SPEC_PATH = sys.argv[1] if len(sys.argv) > 1 else os.path.join(BASE, 'docs', 'song_spec.yaml')
 COMP_PATH = sys.argv[2] if len(sys.argv) > 2 else os.path.join(BASE, 'docs', 'composition.yaml')
 
-# Fast / happy-hardcore target tempo (the genre sits at 170–180 BPM)
+# Release target tempo: 175 BPM, the genre canonical for happy hardcore.
 FAST_BPM        = 175
 PAL_HZ        = 50.0
 
@@ -238,36 +238,49 @@ def main():
                 return _master_grid[idx]
             return int(round(beat * fbeat_lead))
 
-        # Vocal (V2): T7 verbatim + per-section waveform.
-        # Each chorus reprise gets a DISTINCT timbre so the same melody line
-        # doesn't wear thin when it returns: chorus1 = saw/hoover,
-        # chorus2 = pulse, chorus3 = tri+pulse (brightest, climactic final).
+        # Vocal (V2): T7 verbatim, pulse waveform with 25% PW. Pulse has
+        # lots of odd-harmonic content that cuts through the HHC bass/drum
+        # mix where triangle would get buried. Single consistent timbre
+        # across sections — variation comes from the per-section transpose
+        # below and the (always-on) filter sweep.
         SECTION_LEAD_CTRL = {
-            'intro':           0x10,
-            'verse1':          0x10,
-            'prechorus1':      0x10,
-            'chorus1':         0x20,  # saw -> hoover
-            'postchorus_nana': 0x20,
-            'breathe1':        0x20,
-            'chorus2':         0x40,  # pulse -- distinct reprise 2 (clean, loud)
-            'breakdown':       0x10,  # triangle -- the hook naked & soft in the gap
+            'intro':           0x40,
+            'verse1':          0x40,
+            'prechorus1':      0x40,
+            'chorus1':         0x40,
+            'postchorus_nana': 0x40,
+            'breathe1':        0x40,
+            'chorus2':         0x40,
+            'breakdown':       0x40,
             'breathe2':        0x40,
-            'chorus3':         0x20,  # saw -- fat & clear for the climactic final
-                                      # (was $50 tri+pulse: AND-combine = thin,
-                                      # dropped notes — the "missing notes")
+            'chorus3':         0x40,
         }
-        # Per-section lead transpose (semitones). Octave-up the FINAL chorus
-        # so the last drop peaks above all the earlier choruses = climactic
-        # lift, and the thrice-played hook stops wearing thin.
+        # Base octave correction for the karaoke MIDI's vocal substitute
+        # (Oboe, prog 68). The transcription sits an octave above where Gala
+        # actually sings — a common karaoke trick so the line plays audibly
+        # through a 1996-era GS soundcard. Replaying verbatim puts the
+        # lead at A4-F5 (soprano whistle range) instead of Gala's alto
+        # C4-Bb4. Drop the whole lead by an octave to land back in the
+        # actual sung register.
+        LEAD_BASE_TRANSPOSE = -12
+        # Per-section lift on top of the base. Verses stay in alto;
+        # choruses lift a perfect fifth for brightness without going into
+        # whistle range. Octave-up (+12) read as too piercing under the
+        # pulse waveform; +7 keeps the energy lift musical.
         SECTION_LEAD_TRANSPOSE = {
-            'chorus3': 12,
+            'chorus1':          7,
+            'postchorus_nana':  7,
+            'breathe1':         7,
+            'chorus2':          7,
+            'breathe2':         7,
+            'chorus3':          7,
         }
         for s_b, d_b, pitch in layers['layers'].get('vocal', []):
             d = max(0.2, d_b)
             for out_b, label in remap(s_b):
                 lead_events.append({
                     'frame': grid_frame(out_b),
-                    'note':  int(pitch) + SECTION_LEAD_TRANSPOSE.get(label, 0),
+                    'note':  int(pitch) + LEAD_BASE_TRANSPOSE + SECTION_LEAD_TRANSPOSE.get(label, 0),
                     'dur_frames': max(4, int(round(d * fbeat_lead))),
                     'ctrl':  SECTION_LEAD_CTRL.get(label, 0x10),
                 })
@@ -279,11 +292,18 @@ def main():
         # onset so the line is continuous; retrigger (synth) still re-attacks
         # every note, so it stays accented and pops. Genuine section drops
         # (gap > SECTION_REST) are preserved: the note rings out then rests.
+        # Cap the legato extension at LEGATO_CAP beats. Without a cap, a
+        # long-held syllable rings until the very next onset, which on
+        # sparse vocal phrasing can sustain across multiple kicks and
+        # read as "lead lagging vs drums". The cap means short gaps
+        # still fill (no blip-silence-blip) but multi-beat held tails
+        # get cut at 0.75 beats so the lead breathes.
         lead_events.sort(key=lambda e: e['frame'])
         SECTION_REST = int(round(beats_to_frames(3.5, play_bpm)))  # only the chorus
                                                                    # DROPS exceed this;
                                                                    # all breaths fill
         RING_OUT     = int(round(beats_to_frames(1.0, play_bpm)))  # ring before a rest
+        LEGATO_CAP   = int(round(beats_to_frames(0.75, play_bpm))) # max legato fill
         for i, ev in enumerate(lead_events):
             if i + 1 >= len(lead_events):
                 continue
@@ -296,53 +316,66 @@ def main():
                 # off→on within one frame, which the SID envelope can't
                 # hard-restart cleanly -> glitched / "barely there" notes.
                 # The 2-frame (~40ms) gate-off is inaudible but lets each note
-                # re-attack cleanly.
-                ev['dur_frames'] = max(1, gap - 2)
+                # re-attack cleanly. LEGATO_CAP guards against a sparse vocal
+                # phrase tying one syllable across multiple kicks.
+                ev['dur_frames'] = max(1, min(gap - 2, LEGATO_CAP))
             else:
                 ev['dur_frames'] = max(ev['dur_frames'], RING_OUT)  # ring, then rest
 
-        # ---- V1: section-authentic, verbatim per source layer.
-        # Per the score analysis + voice_essence.md:
-        #   Intro/Verse/Prechorus: organ stab (T6, 345 events, D-pedal)
-        #   Chorus 1: sparse (T5 only 12 events) → organ continues
-        #   Na-na: T5 bass tresillo (43 events, the groove engine)
-        #   Chorus 2/3 reprises: T5 bass from na-na range
-        # Each layer plays ONLY where it exists in the source.
+        # ---- V1: pure HHC bass generator (no MIDI-sourced layers).
+        # Tresillo pattern (3-3-2 sixteenths repeated) on the chord root,
+        # cycling FFD's i-III-VI-VII = Dm-F-Bb-C in D minor — one chord
+        # per 4-beat bar. Six hits per bar at offsets [0, 0.75, 1.5, 2,
+        # 2.75, 3.5], syncopated against the 4-on-floor kick. Roots in
+        # octave 2 for weight: D2(38), F2(41), Bb2(46), C3(48).
+        # Intro and breakdown skip the tresillo; breakdown gets a single
+        # sustained D2 drone (added below) under the naked vocal.
         if not MELODY_ONLY:
-            # T6 organ stab: verbatim. The original verse rhythmic engine.
-            # Plays D4+D5+D6 unison — we drop to D2 for bass register.
-            organ = layers['layers'].get('organ', [])
-            for s_b, d_b, pitch in organ:
-                d = max(0.1, d_b)
-                for out_b, label in remap(s_b):
-                    if label == 'breakdown': continue   # bass drops out too
+            HHC_CHORD_CYCLE = [38, 41, 46, 48]  # Dm-F-Bb-C
+            def _label_at(ob):
+                for (s_, e_, lab), o_ in zip(SEGMENTS, out_offsets):
+                    if o_ <= ob < o_ + (e_ - s_):
+                        return lab
+                return None
+            TRESILLO_OFFSETS = [0.0, 0.75, 1.5, 2.0, 2.75, 3.5]
+            total_bars = int(song_out_beats // 4) + 1
+            for bar in range(total_bars):
+                bar_b = bar * 4.0
+                root = HHC_CHORD_CYCLE[bar % 4]
+                for off in TRESILLO_OFFSETS:
+                    ob = bar_b + off
+                    if ob >= song_out_beats: break
+                    label = _label_at(ob)
+                    if label in (None, 'intro', 'breakdown'):
+                        continue
                     bass_events.append({
-                        'frame': grid_frame(out_b),
-                        'note':  38,  # D2 always (organ is D-pedal)
-                        'dur_frames': max(3, int(round(d * fbeat_groove))),
+                        'frame': grid_frame(ob),
+                        'note':  root,
+                        'dur_frames': max(3, int(round(0.45 * fbeat_groove))),
+                        'role':  'hhc',
                     })
-            # T5 bass: verbatim (enters at beat 120, tresillo).
-            t5 = layers['layers'].get('bass', [])
-            for s_b, d_b, pitch in t5:
-                d = max(0.1, d_b)
-                for out_b, label in remap(s_b):
-                    if label == 'breakdown': continue   # bass drops out too
-                    bass_events.append({
-                        'frame': grid_frame(out_b),
-                        'note':  int(pitch),
-                        'dur_frames': max(3, int(round(d * fbeat_groove))),
-                    })
-            # T11 hook: verbatim (na-na counter-melody, beat 184+).
-            t11 = layers['layers'].get('hook', [])
-            for s_b, d_b, pitch in t11:
-                d = max(0.1, d_b)
-                for out_b, label in remap(s_b):
-                    if label == 'breakdown': continue   # bass drops out too
-                    bass_events.append({
-                        'frame': grid_frame(out_b),
-                        'note':  int(pitch) - 12,
-                        'dur_frames': max(3, int(round(d * fbeat_groove))),
-                    })
+
+            # Breakdown sub-bass drone: V1 holds D2 for the full 8 beats.
+            # Sustained pedal under the naked vocal — quiet anticipation
+            # before the breathe2 snare-roll build into chorus3.
+            for (src_s, src_e, label), out_s in zip(SEGMENTS, out_offsets):
+                if label != 'breakdown': continue
+                bd_len = src_e - src_s
+                bass_events.append({
+                    'frame': grid_frame(out_s),
+                    'note':  38,  # D2 sub-bass drone
+                    'dur_frames': max(3, int(round(bd_len * fbeat_groove))),
+                    'role':  'hhc',
+                })
+
+            # Sort + per-event truncation so V1 doesn't drift: each note
+            # ends at least one frame before the next so the player's
+            # event stream stays in sync with absolute time.
+            bass_events.sort(key=lambda e: e['frame'])
+            for i in range(len(bass_events) - 1):
+                gap = bass_events[i + 1]['frame'] - bass_events[i]['frame']
+                bass_events[i]['dur_frames'] = max(
+                    1, min(bass_events[i]['dur_frames'], gap - 1))
 
         # ---- Drums (V3) verbatim from T13, filtered for dynamics ----
         # Section boundaries (source beats) from the lyric markers in T2:
@@ -407,45 +440,79 @@ def main():
                     break
             return cur
         if not MELODY_ONLY:
-            # Canonical happy-hardcore foundation, generated on the OUTPUT grid
-            # so every voice shares ONE pulse: 4-on-the-floor kick, backbeat
-            # clap on beats 2 & 4, offbeat-8th hats (full 8ths in choruses).
-            # The verbatim T13 drums were dense and un-anchored — kick scattered
-            # off the grid, snare on every 16th, no backbeat — so the layers
-            # read as "pasted together". This gives a singular rhythm; the
-            # iconic FFD bass + the vocal float ON TOP (the bass already shares
-            # the downbeat with the kick). Breathe snare-roll + crashes (below)
-            # stack on this. (SECTIONS/SECTION_KIT/GM_DRUMS above are now unused.)
-            LABEL_INTENSITY = {
-                'intro':           0,   # silence — only the crash swell
-                'verse1':          2,   # kick + clap + offbeat hats
-                'prechorus1':      3,   # + on-beat hats (full 8ths) = build
-                'chorus1':         3,
-                'postchorus_nana': 3,
-                'breathe1':        1,   # kick only; the snare roll fills the rest
-                'chorus2':         3,
-                'breakdown':       0,   # beat drops out entirely — the breakdown
-                'breathe2':        1,
-                'chorus3':         3,
+            # Per-section drum identity. Each entry picks a kick rule, a
+            # backbeat-snare rule, and a hat style — each section gets a
+            # distinct rhythmic colour rather than one canonical pattern.
+            #   kick:  True = 4-on-the-floor (every beat)
+            #   clap:  True = backbeat on beats 2 & 4
+            #   hat:   None | 'closed' (short tick) | 'open' (longer ring) |
+            #          'sixteenth' (rolling 16ths)
+            # Section flavour:
+            #   intro        — silent (only the riser crash from source T12)
+            #   verse        — kick + clap + closed offbeat hat (HHC build)
+            #   prechorus    — rolling 16th hats (intensify into chorus)
+            #   chorus       — kick + clap + OPEN hat every offbeat = shimmer
+            #   postchorus   — rolling 16ths over the na-na (rave engine)
+            #   breakdown    — beat drops out (V1 holds D2 drone instead)
+            #   breathe      — kick only; the snare roll fills around it
+            SECTION_DRUMS = {
+                'intro':           {'kick': False, 'clap': False, 'hat': None},
+                'verse1':          {'kick': True,  'clap': True,  'hat': 'closed'},
+                'prechorus1':      {'kick': True,  'clap': True,  'hat': 'sixteenth'},
+                'chorus1':         {'kick': True,  'clap': True,  'hat': 'open'},
+                'postchorus_nana': {'kick': True,  'clap': True,  'hat': 'sixteenth'},
+                'breathe1':        {'kick': True,  'clap': False, 'hat': None},
+                'chorus2':         {'kick': True,  'clap': True,  'hat': 'open'},
+                'breakdown':       {'kick': False, 'clap': False, 'hat': None},
+                'breathe2':        {'kick': True,  'clap': False, 'hat': None},
+                'chorus3':         {'kick': True,  'clap': True,  'hat': 'open'},
             }
             def label_at_out(ob):
                 for (s_, e_, lab), o_ in zip(SEGMENTS, out_offsets):
                     if o_ <= ob < o_ + (e_ - s_):
                         return lab
                 return None
-            for i in range(int(round(song_out_beats * 2))):    # 8th-note steps
-                ob = i / 2.0
-                inten = LABEL_INTENSITY.get(label_at_out(ob), 0)
-                if inten == 0:
+            # 16th-note steps so 'sixteenth' hat density and on-grid hat
+            # timing both fall out cleanly.
+            for i in range(int(round(song_out_beats * 4))):
+                ob = i / 4.0
+                pat = SECTION_DRUMS.get(label_at_out(ob))
+                if not pat:
                     continue
-                on_beat = (i % 2 == 0)
-                in_bar  = int(round(ob)) % 4                     # bar position
-                if on_beat:                                      # KICK 4-on-floor
+                on_16th = True                                   # i is always a 16th index
+                on_8th  = (i % 2 == 0)
+                on_beat = (i % 4 == 0)
+                in_bar  = int(round(ob)) % 4                     # beat-of-bar 0..3
+                if pat['kick'] and on_beat:
                     drum_events.append({'kind': 'kick', 'frame': grid_frame(ob)})
-                if on_beat and in_bar in (1, 3) and inten >= 2:  # CLAP on 2 & 4
+                if pat['clap'] and on_beat and in_bar in (1, 3):
                     drum_events.append({'kind': 'snare', 'frame': grid_frame(ob)})
-                if inten >= 2 and (not on_beat or inten >= 3):   # HATS
+                if pat['hat'] == 'closed' and on_8th and not on_beat:
                     drum_events.append({'kind': 'hat', 'frame': grid_frame(ob)})
+                elif pat['hat'] == 'open' and on_8th and not on_beat:
+                    # Open hat on every offbeat 8th — the HHC chorus shimmer.
+                    # Clean (no noise haze) at the 60 ms open_hat ring time.
+                    drum_events.append({'kind': 'open_hat', 'frame': grid_frame(ob)})
+                elif pat['hat'] == 'sixteenth' and not on_beat:
+                    drum_events.append({'kind': 'hat', 'frame': grid_frame(ob)})
+
+            # 2-beat 16th-note snare-roll fills at the tail of selected
+            # sections — break up the 4-on-floor monotony at section
+            # boundaries by lifting into the next drop.
+            FILL_BEFORE = {'verse1', 'prechorus1', 'chorus1'}
+            for (src_s, src_e, label), out_s in zip(SEGMENTS, out_offsets):
+                if label not in FILL_BEFORE: continue
+                fill_start = out_s + (src_e - src_s) - 2.0      # last 2 beats
+                for step in range(8):                            # 16ths over 2 beats
+                    drum_events.append({
+                        'kind': 'snare',
+                        'frame': grid_frame(fill_start + step / 4.0),
+                    })
+
+            # Breakdown drums are silent — V1 holds a D2 sub-bass drone
+            # (added in the bass block above) and the naked lead carries
+            # the breakdown. breathe2's 16th-note snare roll then builds
+            # back into the chorus3 drop.
 
         # ---- T12 reverse-cymbal swells (intro AND section transitions) ----
         if not MELODY_ONLY:

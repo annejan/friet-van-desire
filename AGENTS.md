@@ -46,17 +46,19 @@ PRG-style load address — which is the more reliably-supported variant.
 
 ## Voice assignment (current working build)
 
-The clean pipeline (`extract_patterns` → `compose` → `synth`) uses:
+The release pipeline (`extract_patterns` → `compose` → `synth`) uses:
 
 | Voice | Source                 | Tone                                     |
 |-------|------------------------|------------------------------------------|
-| V1    | T6 grid — INTERLEAVING organ stab | Pulse, PW=$0800, sustained envelope. Grid positions (0, 1, 1.75, 2.5, 3.5 beats per bar) computed per output bar to **never collide with any V2 vocal note**. D2 pedal. Silent in intro/breathe sections. Call-and-response with the vocal. |
-| V2    | T7 vocal VERBATIM | Per-section waveform: **triangle** in verse, **sawtooth+hoover** in chorus, **pulse** in final reprise. Vibrato ±12. Source timing preserved (tresillo intact). |
-| V3    | T13 drums VERBATIM | Section-filtered: verse=kick only, prechorus=kick+snare, chorus=full kit. **Snare fills** in breathe sections. **Hat boost** (8th-note on+off) in chorus2/3. Crash swell: long attack ($D), dark pitch (28), 4s gate. |
+| V1    | **Synthetic HHC tresillo bass** | Pulse 50%, AD=$07 SR=$17 (instant attack, fast decay, 7% sustain — HHC pump). Chord cycle Dm-F-Bb-C (i-III-VI-VII), one chord per 4-beat bar. Six hits per bar at tresillo offsets `[0, 0.75, 1.5, 2, 2.75, 3.5]`. Roots in octave 2 (D2/F2/Bb2/C3). Silent in intro; sustained D2 drone in breakdown. |
+| V2    | **T7 vocal verbatim** | Pulse 25% PW (the recognisable melody, but with HHC stab harmonics that cut through the mix). Base transpose −12 (Gala's actual sung register A3–F4); chorus lift +7 (perfect fifth, bright but not whistle). Per-note filter sweep $C0→$80 + LFO ±3. |
+| V3    | **Synthetic HHC kit** | Per-section: intro silent, verse closed-hat offbeat 8ths, prechorus rolling 16ths (build), chorus open hat every offbeat (shimmer), postchorus rolling 16ths, breakdown silent, breathe = kick only + snare roll. 2-beat 16th snare fills at the tail of verse1/prechorus1/chorus1. Crashes from source T12 plus synthetic risers 3 beats before each chorus. |
 
-Plus the verified ground truth in `docs/song_layers.yaml`:
-syllable markers from T2 align note-for-note to T7's pitches — that's how
-we know T7 is genuinely the vocal melody and not a counter-line.
+The lead is the **only** MIDI-derived voice — V2 plays the karaoke vocal
+(`docs/song_layers.yaml` 'vocal' layer, verified against T2 syllable
+markers) verbatim. V1 and V3 are synthesised entirely in `compose.py` to a
+happy-hardcore template; the source layers for those (organ, T5 bass, T11
+hook, T13 drums) are no longer read by the release pipeline.
 
 ## Source-MIDI roles (from `analyze_midi.py`)
 

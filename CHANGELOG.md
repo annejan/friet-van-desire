@@ -3,6 +3,54 @@
 All notable changes to **Friet met Desire** are recorded here.
 Dates are local (Europe/Amsterdam).
 
+## 2026-06-06 — Happy-hardcore rewrite of the rhythm section
+
+The lead vocal stays — that's the recognisable hook — but everything else
+under it is rebuilt as authentic happy hardcore, dropping the verbatim
+karaoke-MIDI replay for V1 + V3.
+
+- **Tempo: 175 BPM** (genre canonical; was 175 → temporarily 150/160 during
+  iteration → back to 175 once the mix supported it).
+- **V1 bass: synthetic tresillo on the chord cycle.** Pumping Dm-F-Bb-C
+  (i-III-VI-VII), one chord per 4-beat bar, six hits per bar at the
+  3-3-2-sixteenth offsets `[0, 0.75, 1.5, 2, 2.75, 3.5]`. Roots in octave 2
+  (D2 / F2 / Bb2 / C3). Breakdown gets a single sustained D2 sub-bass drone
+  under the naked vocal instead. The karaoke MIDI's chorus source range
+  (88–117.5) has no V1 content at all, so the verbatim-T5/T11/organ path
+  was leaving V1 silent through every chorus — fixed by synthesising
+  authentic HHC bass from scratch.
+- **V1 contention resolved.** Each bass event truncates to fit before the
+  next onset so V1 doesn't drift later in absolute time (was a silent bug:
+  the encoder wrote each note's full dur_frames back-to-back without
+  correcting overlap).
+- **V2 lead: pulse waveform (25% PW)** for HHC stab character — cuts
+  through the drum/bass mix where the previous triangle was being buried.
+  Base octave still `-12` to land in Gala's actual sung register; chorus
+  lift `+7` (perfect fifth) — `+12` read as too piercing under the
+  brighter waveform.
+- **V3 drums: rewritten per-section.** intro silent, verse closed-hat
+  offbeat 8ths, prechorus rolling 16th hats (build), chorus open hat every
+  offbeat (the "tssh tssh" shimmer), postchorus rolling 16ths, breakdown
+  silent, breathe = kick + snare roll. Two-beat 16th-note snare fills at
+  the tail of verse1 / prechorus1 / chorus1 lift into the next drop.
+- **V3 noise channel hygiene.** `build_drum_timeline` now resolves
+  overlapping events cleanly — each drum gets its own gate-on hold and
+  gate-off, the timeline gap between events carries the previous drum's
+  AD/SR so envelope releases finish at the drum's own rate. Without this
+  fix, overlapping crash + kick + hat hits produced mid-envelope register
+  changes that the SID renders as glitch artefacts.
+- **Open hat as a distinct kit voice.** Added `open_hat` to `DRUM_KIT`
+  with a 60 ms gate so the chorus shimmer rings the right length without
+  bleeding into the next hit.
+- **Crash duration capped at 1.6 s** (was 4 s) so the reverse-cymbal
+  swell doesn't hog the noise channel through half a chorus and block
+  kicks/hats.
+- **Filter sweep retuned.** Resonance `$4` (was `$7` — peakier than the
+  8580 wanted); cutoff init `$C0` decays to `$80` (less LP attenuation
+  so the pulse lead keeps its harmonics); LFO ±3 shimmer; ZP_VIB_IDX
+  now advanced from inside `filter_env` instead of from `apply_vibrato`
+  (which is no longer in the play loop).
+
 ## 2026-06-03 — Koala demo: full-screen snackbar picture
 
 - **New demo deliverable**: `out/friet_koala.prg` / `friet_koala.d64`

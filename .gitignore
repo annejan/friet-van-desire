@@ -25,3 +25,9 @@ src/player/banner_bottom.bin
 # koala preview intermediates
 out/*.ppm
 out/friet_koala_preview.png
+
+# Exploratory build artifacts (intermediate gens, A/B comparisons, MIDI renders)
+out/gens/
+out/bpm_ab/
+out/midi_renders/
+out/friet_lead_only.*

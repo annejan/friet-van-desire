@@ -46,24 +46,33 @@ midi/*.mid  ──>  extract_patterns.py  ──>  docs/song_spec.yaml    (patte
 
 ## Voice assignment
 
-All three voices play **verbatim source data** — no synthetic patterns.
-V1 switches role per section, matching the original production:
+Only V2 (the lead vocal) plays MIDI-sourced material — that's the
+recognisable hook. V1 (bass) and V3 (drums) are synthesised from scratch
+to an authentic happy-hardcore template at 175 BPM:
 
-| Section | V1 | V2 | V3 |
+| Section | V1 (synthetic HHC bass) | V2 (T7 vocal verbatim) | V3 (synthetic HHC kit) |
 |---------|----|----|-----|
-| Intro | (silent — crash swell on V3) | — | T12 swell + T13 sparse |
-| Verse | **T6 organ stab** (D-pedal, composed with the vocal) | T7 vocal (triangle) | T13 kick-only |
-| Pre-chorus | T6 organ stab continues | T7 vocal (triangle) | T13 kick+snare |
-| Chorus 1 | T6 organ stab (T5 barely present) | T7 vocal (sawtooth + hoover) | T13 full kit |
-| Na-na | **T5 bass tresillo** (the groove shift) | T7 vocal (sawtooth) | T13 full kit |
-| Chorus 2/3 | T5 bass from na-na range | T7 vocal (pulse in finale) | T13 + snare fills + hat boost |
+| Intro | silent | — | silent (riser crash from source T12) |
+| Verse | tresillo on Dm/F/Bb/C | pulse 25% PW, base -12 | kick + clap + closed hat offbeat |
+| Pre-chorus | tresillo continues | base -12 | rolling 16th hats (build) |
+| Chorus 1 | tresillo continues | **+7 lift** (perfect fifth) | full kit + **open hat every offbeat** |
+| Na-na | tresillo continues | +7 | rolling 16ths (drive) |
+| Chorus 2 | tresillo continues | +7 | full kit + open hat shimmer |
+| Breakdown | sustained D2 sub-bass drone | base -12 | silent |
+| Chorus 3 | tresillo continues | +7 (climax sits an octave above verse) | full kit + open hat shimmer |
+
+Section endings (verse1, prechorus1, chorus1) get a 2-beat 16th-note
+snare-roll fill into the next section.
 
 SID production tricks:
-- **PWM sweep** on V1 bass (~$0180/frame cycling $000–$FFF) for chorus-like movement
-- **Kick pitch-sweep**: 2 frames triangle at high pitch → noise body (real thump)
-- **Vibrato** ±12 SID-freq units on V2 (~3 Hz)
-- **Filter LP** with hoover sweep ($E0→$80 per note) on V2, resonance $6
+- **Pulse 25% PW** on V2 lead — odd-harmonic content cuts through the bass/drum mix
+- **Tresillo (3-3-2)** on V1 — 6 hits per bar at offsets `[0, 0.75, 1.5, 2, 2.75, 3.5]`
+- **Per-note filter sweep** on V2: cutoff $C0→$80 + LFO ±3 shimmer
+- **Kick pitch-sweep**: 2 frames triangle at high pitch → noise body
+- **Open hat as a distinct kit voice**: 60 ms gate so the chorus shimmer doesn't haze
 - **Bresenham frame grid** (30/7 integer accumulation) for drift-free timing
+- **Non-overlapping V3 scheduler**: each drum gets a clean gate-on hold + gate-off
+  so overlapping events don't toggle AD/SR mid-envelope
 
 ## Layout
 
