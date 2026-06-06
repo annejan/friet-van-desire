@@ -150,10 +150,15 @@ The one-file demo (`make koala` → `out/friet.prg`). Built by
 `build_player.py`, which extracts the SID body + builds the lyric table,
 then assembles three players via the shared `assemble()` helper
 (`friet.asm` = lyric ticker, `friet_compo.asm` = pure-audio credits,
-`friet_koala.asm` = this demo). Visual assets come from `tools/mix_koala.py`
-(composites Miep + cigar-Harry's swirl ornaments + frikandel + fries on a
-dark nebula+starfield → koala bitmap bins) and `tools/spm_to_sprites.py`
-(`FinaLKjoep32.spm` → 32 cube-rotation frames).
+`friet_koala.asm` = this demo). Koala art: **`make koala`** (default) builds
+from the hand-edited `FrietDemo_edit.kla` (the canonical art — edit in
+Multipaint, `kla_to_bins.py` → bins). **`make koala-proc`** regenerates the
+procedural composite (`tools/mix_koala.py`: Miep + cigar-Harry swirls +
+frikandel + fries on a dark nebula+starfield) — use it to re-derive art (e.g.
+a fresh Miep from pHasedBased), then `cp out/friet.koa FrietDemo_edit.kla` to
+adopt it. Cubes come from `tools/spm_to_sprites.py` (`FinaLKjoep32.spm` → 32
+frames). Drive/inspect the demo via the VICE MCP (127.0.0.1:6510/mcp), not
+raw x64sc.
 
 - **Two-IRQ raster split.** `irq_top` (line `TOPL`=251) = multicolor
   bitmap + runs the frame (SID play, `fly`, `spin`, `tick_scene`,

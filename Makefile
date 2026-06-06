@@ -8,7 +8,7 @@
 #   make preview-clean   song-faithful workstage render (130 BPM)
 #   make preview-melody  vocal-only workstage (verification)
 .PHONY: all clean analyze extract compose synth \
-        clean-pipeline melody-only friet lab compo disk master koala koala-art koala-edit \
+        clean-pipeline melody-only friet lab compo disk master koala koala-proc koala-art sprite_cube_dep \
         preview preview-clean preview-melody preview-friet preview-lab player
 
 SHELL      := /bin/bash
@@ -144,40 +144,39 @@ $(FRIET_D64): $(FRIET_PRG)
 	@echo "Floppy: $@"
 	@c1541 $@ -dir
 
-# Demo deliverable — full-screen KoalaPainter snackbar picture + the SID +
-# a beat-reactive colour cycle (border/bg step on every kick). This is the
-# "demo" version (the music-compo entry is the pure-audio $(FRIET_COMPO_PRG)).
+# Demo deliverable — full-screen koala picture + 8 flying/spinning 3D-cube
+# sprites + raster-split lyric ticker + escalation arc + breakdown + the SID.
 # Load on a C64 with:  LOAD"FRIET MET DESIRE",8,1  then  RUN
-koala: $(KOALA_D64)
-# Demo = the dragon (Miep) mixed into a nicer composition (warm glow-vignette
-# background + frikandel speciaal in his mouth, tools/mix_koala.py) as the
-# full-screen bitmap, + 8 flying/spinning 3D-cube hardware sprites + a
-# raster-split lyric ticker + a song-structure escalation arc + the SID.
-# (Alt art: kla_to_bins.py = plain .kla; make_koala.py = procedural snackbar
-# via `make koala-art`.)
-$(KOALA_KOA): FrietFromDesireMiep.kla $(TOOLS_DIR)/mix_koala.py
+#
+# DEFAULT = the HAND-EDITED koala (FrietDemo_edit.kla). This is the canonical
+# art: edit FrietDemo_edit.kla in Multipaint/KoalaPainter, then `make koala`.
+# kla_to_bins.py turns it into the player bins (no procedural overwrite).
+KOALA_EDIT := FrietDemo_edit.kla
+koala: sprite_cube_dep $(KOALA_EDIT)
+	$(PYTHON) $(TOOLS_DIR)/kla_to_bins.py $(KOALA_EDIT)
+	$(PYTHON) $(SRC_DIR)/build_player.py
+	c1541 -format "friet met desire,fd" d64 $(KOALA_D64) -write $(KOALA_PRG) "friet" >/dev/null
+	@echo "Demo (hand-edited koala) -> $(KOALA_PRG) + $(KOALA_D64)"
+
+# Procedural composite from the raw crew art (Miep + cigar-Harry swirls +
+# frikandel + fries + nebula+starfield, tools/mix_koala.py). Regenerates the
+# player bins + out/friet.koa; does NOT touch FrietDemo_edit.kla. Use to
+# re-derive the art (e.g. a fresh Miep .kla from pHasedBased) — then
+# `cp out/friet.koa FrietDemo_edit.kla` to adopt it as the editable canonical.
+koala-proc: sprite_cube_dep
 	$(PYTHON) $(TOOLS_DIR)/mix_koala.py
+	$(PYTHON) $(SRC_DIR)/build_player.py
+	c1541 -format "friet met desire,fd" d64 $(KOALA_D64) -write $(KOALA_PRG) "friet" >/dev/null
+	@echo "Demo (procedural koala) -> $(KOALA_PRG) + $(KOALA_D64)"
+
+# make_koala.py = old procedural snackbar (different art, rarely used).
 koala-art:
 	$(PYTHON) $(TOOLS_DIR)/make_koala.py
-# Build the demo from a HAND-EDITED koala instead of the procedural composite.
-# Export the current art with `cp out/friet.koa FrietDemo_edit.kla` (already
-# done), edit FrietDemo_edit.kla in Multipaint/KoalaPainter, then `make
-# koala-edit`. This bypasses mix_koala (so your edits aren't overwritten).
-koala-edit:
-	$(PYTHON) $(TOOLS_DIR)/kla_to_bins.py FrietDemo_edit.kla
-	$(PYTHON) $(SRC_DIR)/build_player.py
-	@echo "Demo built from FrietDemo_edit.kla -> $(KOALA_PRG)"
 # 32 rotation frames of the 3D cube, from the Spritemate .spm. Lives at $4440
 # (just past the grown SID); the text screen moved to $5800 to make room.
+sprite_cube_dep: $(SRC_DIR)/player/sprite_cube.bin
 $(SRC_DIR)/player/sprite_cube.bin: $(TOOLS_DIR)/spm_to_sprites.py FinaLKjoep32.spm
 	$(PYTHON) $(TOOLS_DIR)/spm_to_sprites.py FinaLKjoep32.spm $@ 1
-$(KOALA_PRG): $(KOALA_KOA) $(SRC_DIR)/player/friet_koala.asm \
-              $(SRC_DIR)/player/sprite_cube.bin $(SRC_DIR)/build_player.py $(FRIET_SID) \
-              docs/friet_met_desire_lyrics.yaml
-	$(PYTHON) $(SRC_DIR)/build_player.py
-$(KOALA_D64): $(KOALA_PRG)
-	c1541 -format "friet met desire,fd" d64 $@ -write $(KOALA_PRG) "friet" >/dev/null
-	@echo "Demo (koala) disk: $@"
 	@c1541 $@ -dir
 
 # Shareable audio master — 192 kbps, +6.8 dB make-up gain (verified 0 clips),
